@@ -151,6 +151,38 @@ ask_port() {
   PORT="$answer"
 }
 
+# Asks where Node.js (20+) is installed, e.g. /usr/local/node/bin/node.
+# Sets NODE_BIN and puts its folder first in PATH so node, npm and npx all come from it.
+ask_node() {
+  local found p major
+  found=$(command -v node 2>/dev/null || true)
+  while true; do
+    if [[ -n "$found" ]]; then
+      read -r -p "  Path to node (or its folder) [$found]: " p || true
+    else
+      read -r -p "  Path to node (or its folder), Enter to install Node.js $NODE_MAJOR: " p || true
+    fi
+    p="${p:-$found}"
+    if [[ -z "$p" ]]; then NODE_BIN=""; ok "Node.js will be installed (version $NODE_MAJOR)"; return; fi
+    if [[ -d "$p" ]]; then
+      if [[ -x "$p/node" ]]; then p="$p/node"; elif [[ -x "$p/bin/node" ]]; then p="$p/bin/node"; fi
+    fi
+    if [[ -f "$p" && -x "$p" ]]; then
+      major=$("$p" -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
+      if (( major >= 20 )); then
+        NODE_BIN="$(cd "$(dirname "$p")" && pwd)/$(basename "$p")"
+        export PATH="$(dirname "$NODE_BIN"):$PATH"
+        [[ -x "$(dirname "$NODE_BIN")/npm" ]] || warn "npm was not found next to node; the install may fail."
+        ok "Using Node.js $("$NODE_BIN" -v) at $NODE_BIN"
+        return
+      fi
+      warn "Node.js 20 or newer is required (this one is version $major)."
+    else
+      warn "No executable node found at: $p"
+    fi
+  done
+}
+
 wizard() {
   step "Configuration"
   info "Press Enter to accept the value in brackets."
@@ -191,6 +223,7 @@ wizard() {
     warn "No domain: the app will run over plain HTTP. Login cookies are then not secure; use a domain for production."
   fi
 
+  ask_node
   ask_port
   ask ORG_NAME "Organization name (shown in the UI and on PDFs; can be changed later)" "${ORG_NAME:-سازمان}"
   ask_yes_no "Install demo accounts (admin, manager1, employee1 ... with password 123456)?" n && SEED_DEMO=1 || SEED_DEMO=0
@@ -219,6 +252,7 @@ wizard() {
     keep)        info "HTTPS certificate : existing ($CERT_FILE)" ;;
     *)           info "HTTPS certificate : none (HTTP only)" ;;
   esac
+  info "Node.js           : ${NODE_BIN:-install Node.js $NODE_MAJOR}"
   info "App port (local)  : $PORT  (127.0.0.1 only)"
   info "Organization      : $ORG_NAME"
   info "Demo accounts     : $([[ $SEED_DEMO -eq 1 ]] && echo yes || echo no)"
@@ -358,7 +392,7 @@ User=root
 Group=root
 WorkingDirectory=$APP_DIR/server
 EnvironmentFile=$APP_DIR/server/.env
-ExecStart=/usr/bin/node dist/index.js
+ExecStart=$(command -v node) dist/index.js
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true
