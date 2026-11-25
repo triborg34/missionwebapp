@@ -1,0 +1,161 @@
+// Mission Management System - database schema (SQLite).
+// Enumerated values are stored as strings and validated in the application layer
+// (SQLite has no native enums). Dates are stored as Gregorian ISO strings
+// (YYYY-MM-DD / HH:mm) and converted to Jalali only for display.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Department {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  createdAt DateTime @default(now())
+  users     User[]
+  missions  Mission[]
+}
+
+model User {
+  id                 Int       @id @default(autoincrement())
+  username           String    @unique
+  passwordHash       String
+  fullName           String
+  role               String    // ADMIN | MANAGER | EMPLOYEE
+  employeeCode       String?   @unique
+  departmentId       Int?
+  department         Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  jobTitle           String?   // Manager position is also edited here
+  phone              String?
+  isActive           Boolean   @default(true)
+  mustChangePassword Boolean   @default(true)
+  failedLoginCount   Int       @default(0)
+  lockedUntil        DateTime?
+  managerId          Int?      // Employee's assigned approver (optional)
+  manager            User?     @relation("ManagerAssignments", fields: [managerId], references: [id], onDelete: SetNull)
+  assignedEmployees  User[]    @relation("ManagerAssignments")
+  lastLoginAt        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  sessions           Session[]
+  missions           Mission[]        @relation("EmployeeMissions")
+  decidedMissions    Mission[]        @relation("DecidedMissions")
+  decisions          MissionApprovalHistory[]
+  assets             ManagerAsset[]
+  auditLogs          AuditLog[]
+
+  @@index([role, isActive])
+  @@index([departmentId])
+}
+
+model Session {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash  String   @unique
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+  expiresAt  DateTime
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Mission {
+  id              Int       @id @default(autoincrement())
+  missionNumber   String    @unique
+  employeeId      Int
+  employee        User      @relation("EmployeeMissions", fields: [employeeId], references: [id], onDelete: Restrict)
+  employeeCode    String
+  departmentId    Int?
+  department      Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  departmentName  String?
+  missionDate     String    // YYYY-MM-DD (departure date, Gregorian)
+  destination     String
+  purpose         String
+  departureTime   String    // HH:mm
+  returnDate      String    // YYYY-MM-DD
+  returnTime      String    // HH:mm
+  description     String?
+  status          String    @default("PENDING") // PENDING | APPROVED | REJECTED | CANCELLED
+  rejectionReason String?
+  decidedById     Int?
+  decidedBy       User?     @relation("DecidedMissions", fields: [decidedById], references: [id], onDelete: SetNull)
+  decidedAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  history         MissionApprovalHistory[]
+
+  @@index([employeeId, status])
+  @@index([status, createdAt])
+  @@index([missionDate])
+  @@index([createdAt])
+}
+
+model MissionApprovalHistory {
+  id            Int      @id @default(autoincrement())
+  missionId     Int
+  mission       Mission  @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  managerId     Int
+  manager       User     @relation(fields: [managerId], references: [id], onDelete: Restrict)
+  action        String   // APPROVED | REJECTED
+  reason        String?
+  // Immutable snapshot of mission details and approver identity at decision time.
+  snapshot      String   // JSON
+  // Frozen copies of signature/stamp files at approval time (relative to storage dir).
+  signaturePath String?
+  stampPath     String?
+  logoPath      String?
+  createdAt     DateTime @default(now())
+
+  @@index([missionId])
+  @@index([managerId, createdAt])
+}
+
+model ManagerAsset {
+  id          Int      @id @default(autoincrement())
+  managerId   Int
+  manager     User     @relation(fields: [managerId], references: [id], onDelete: Cascade)
+  type        String   // SIGNATURE | STAMP
+  filePath    String   // relative to storage dir
+  mimeType    String
+  sizeBytes   Int
+  sha256      String
+  uploadedAt  DateTime @default(now())
+
+  @@unique([managerId, type])
+}
+
+model SystemSettings {
+  id          Int      @id @default(1)
+  orgName     String   @default("سازمان")
+  logoPath    String?  // relative to storage dir
+  logoMime    String?
+  missionSeq  Int      @default(0)
+  updatedAt   DateTime @updatedAt
+}
+
+model AuditLog {
+  id         Int      @id @default(autoincrement())
+  actorId    Int?
+  actor      User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  actorName  String?
+  action     String
+  entityType String?
+  entityId   String?
+  details    String?  // JSON
+  ip         String?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([actorId])
+  @@index([action])
+}
