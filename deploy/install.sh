@@ -392,6 +392,8 @@ User=root
 Group=root
 WorkingDirectory=$APP_DIR/server
 EnvironmentFile=$APP_DIR/server/.env
+# Chrome (PDF rendering) writes its profile under HOME; /root is hidden by ProtectHome.
+Environment=HOME=$DATA_DIR
 ExecStart=$(command -v node) dist/index.js
 Restart=on-failure
 RestartSec=5
